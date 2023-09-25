@@ -1,0 +1,193 @@
+// ==UserScript==
+// @name         Workflowy Image Preview, Embed & Extend
+// @namespace    http://tampermonkey.net/
+// @version      0.10
+// @description  Add image preview, embed videos & extend Workflowy
+// @author       Namkit
+// @match        https://workflowy.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const imageUrlRegex = /(https?:\/\/[^\s]+?(?:\.(?:jpg|jpeg|png|gif|svg|webp))|(?:.+&)?f=(?:JPEG|PNG|GIF|SVG|WEBP)|[^\s]+mmbiz_png.+wx_fmt=(?:JPEG|PNG|GIF|SVG|WEBP)|[^\s]+webp|\/[^\s]+?\.(?:jpg|jpeg|png|gif|svg|webp)|[^\s]+?\.(?:jpg|jpeg|png|gif|svg|webp)|[^\s]+\/photo\/[^\s]+|[^\s]+\/media\/[^\s]+)/i;
+    const modaoFormat = {
+        regex: /https?:\/\/modao\.cc\/app\/([0-9a-zA-Z]+)/i,
+        embed: 'https://modao.cc/app/$1/embed/v2'
+    };
+
+    const bilibiliFormat1 = {
+      regex: /https?:\/\/(www\.)?bilibili\.com\/video\/(BV[\w]+)\//i,
+      embed: '//player.bilibili.com/player.html?bvid=$2&high_quality=1&autoplay=0'
+    };
+
+    const bilibiliFormat2 = {
+      regex: /https?:\/\/(b23\.)?tv\/(BV[\w]+)/i,
+      embed: '//player.bilibili.com/player.html?bvid=$2&high_quality=1&autoplay=0'
+    };
+
+    const bilibiliFormat3 = {
+      regex: /https?:\/\/(www\.)?bilibili\.com\/video\/(av[\d]+)\//i,
+      embed: '//player.bilibili.com/player.html?aid=$2&high_quality=1&autoplay=0'
+    };
+
+    const mastergoFormat = {
+      regex: /https?:\/\/mastergo\.com\/goto\/([A-Za-z0-9]+)\?page_id=([0-9]+):([0-9]+)&file=([0-9]+)/i,
+      embed: 'https://mastergo.com/file/$4?page_id=$2:$3&source=iframe_share'
+    };
+
+    const figmaFormat = {
+      regex: /https?:\/\/(www\.)?figma\.com\/(file|proto)\/([0-9a-zA-Z]+)(\/.*)?/i,
+      embed: 'https://www.figma.com/embed?embed_host=share&url=https%3A%2F%2Fwww.figma.com%2F$2%2F$3&type=design&node-id=0%253A1&mode=design&t=p6zHLdZVkWzkR00Y-1'
+    };
+
+
+    function createImagePreview(elem, imageUrl) {
+      const newLine = document.createElement('br');
+      elem.parentNode.insertBefore(newLine, elem.nextSibling);
+
+      const container = document.createElement('div');
+      container.style.width = '720px';
+      container.style.height = '540px';
+      container.style.backgroundColor = '#222';
+      container.style.display = 'flex';
+      container.style.justifyContent = 'center';
+      container.style.alignItems = 'center';
+      container.style.marginTop = '8px';
+
+      container.style.opacity = '1';
+
+      const preview = document.createElement('img');
+      preview.src = imageUrl;
+      preview.style.maxWidth = '100%';
+      preview.style.maxHeight = '100%';
+      preview.style.objectFit = 'contain';
+      preview.style.objectPosition = 'center';
+
+      container.appendChild(preview);
+      elem.parentNode.insertBefore(container, newLine.nextSibling);
+
+      return preview;
+    }
+    function getModaoPreview(id) {
+      return 'https://xxx/thumbnail/' + id;
+    }
+
+
+
+
+    function processAllLinks() {
+      const links = document.querySelectorAll('.contentLink');
+      links.forEach((link) => {
+        if (!link.hasAttribute('data-image-preview')) {
+          link.setAttribute('data-image-preview', 'true');
+          processLink(link);
+        }
+      });
+    }
+
+function checkForEmbeds() {
+    document.querySelectorAll('a:not([data-processed])').forEach(a => {
+        const url = a.href;
+        let match = url.match(modaoFormat.regex);
+        if (match) {
+            const embedUrl = url.replace(modaoFormat.regex, modaoFormat.embed);
+            appendIframe(a, embedUrl);
+        }
+
+        match = url.match(bilibiliFormat1.regex);
+        if (match) {
+          const embedUrl = url.replace(bilibiliFormat1.regex, bilibiliFormat1.embed);
+          appendIframe(a, embedUrl);
+        }
+
+        match = url.match(bilibiliFormat2.regex);
+        if (match) {
+          const embedUrl = url.replace(bilibiliFormat2.regex, bilibiliFormat2.embed);
+          appendIframe(a, embedUrl);
+        }
+
+        match = url.match(bilibiliFormat3.regex);
+        if (match) {
+          const embedUrl = url.replace(bilibiliFormat3.regex, bilibiliFormat3.embed);
+          appendIframe(a, embedUrl);
+        }
+
+        match = url.match(figmaFormat.regex);
+        if (match) {
+          const embedUrl = url.replace(figmaFormat.regex, figmaFormat.embed);
+          appendIframe(a, embedUrl, 800, 450);
+        }
+
+        match = url.match(mastergoFormat.regex);
+        if (match) {
+          const embedUrl = url.replace(mastergoFormat.regex, mastergoFormat.embed);
+          appendIframe(a, embedUrl, 800, 450);
+        }
+      });
+    }
+
+    function appendIframe(a, embedUrl, isModao = false, width=560, height=315) {
+      const iframe = document.createElement('iframe');
+      iframe.src = embedUrl;
+      iframe.width = width;
+      iframe.height = height;
+      iframe.style.border = '0';
+      iframe.style.display = "block";
+      iframe.allowTransparency = "true";
+      a.parentElement.insertBefore(iframe, a.nextSibling);
+      a.setAttribute('data-processed', true);
+
+      const lineBreak = document.createElement('br');
+      a.parentElement.insertBefore(lineBreak, iframe.nextSibling);
+  }
+
+  function processLink(linkElem) {
+  if (linkElem.href.match(/https:\/\/mmbiz\.qpic\.cn\//i)) {
+    const imageUrl = linkElem.href;
+    createImagePreview(linkElem, imageUrl);
+  } else {
+    let match = linkElem.href.match(imageUrlRegex);
+    if (match) {
+        const imageUrl = match[1];
+        createImagePreview(linkElem, imageUrl);
+    }
+  }
+    
+    match = linkElem.href.match(modaoFormat.regex);
+    if (match) {
+        const embedUrl = linkElem.href.replace(modaoFormat.regex, modaoFormat.embed);
+        appendIframe(linkElem, embedUrl, true);
+    }
+}
+
+// 在文档第一次加载完执行
+
+  let initFun = () => {
+    let app = document.querySelector('#app')
+    if (app) {
+      setTimeout(() => {
+        processAllLinks()
+        checkForEmbeds();
+      }, 1000)
+    } else {
+      setTimeout(() => {
+        initFun()
+      }, 500)
+    }
+  }
+  initFun()
+
+  // 在按下回车键时执行
+  document.addEventListener('keydown', function (event) {
+    processAllLinks()
+    checkForEmbeds();
+  })
+  document.documentElement.addEventListener('click', function (event) {
+    processAllLinks()
+    checkForEmbeds();
+  })
+})()
+
+
