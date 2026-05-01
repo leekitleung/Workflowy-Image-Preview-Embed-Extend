@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Workflowy Image Preview & Embed (Final Stable)
 // @namespace    http://tampermonkey.net/
-// @version      V0.23-Stable
+// @version      V0.24-Stable
 // @description  完美支持图片预览(绕过CSP) + 视频/设计稿嵌入 (Figma, B站, 墨刀等)
 // @author       Namkit (Optimized)
 // @match        https://workflowy.com/*
@@ -114,18 +114,59 @@
         }
     ];
 
-    function buildMediaKey(type, url) {
-        return `${type}::${url}`;
+    function buildMediaKey(anchorRole, type, url) {
+        return `${anchorRole}::${type}::${url}`;
     }
 
-    function findExistingContainer(parentBlock, mediaKey) {
-        const containers = parentBlock.querySelectorAll('.wf-media-container');
+    function findExistingContainer(hostNode, mediaKey) {
+        const containers = hostNode.querySelectorAll('.wf-media-container');
         for (const container of containers) {
             if (container.dataset.wfMediaKey === mediaKey) {
                 return container;
             }
         }
         return null;
+    }
+
+    function resolvePreviewMount(contentNode) {
+        const anchorNode = contentNode.closest('.notes') || contentNode.closest('.name') || contentNode.parentNode;
+        if (!anchorNode || !anchorNode.parentNode) return null;
+
+        const hostNode = anchorNode.parentNode;
+        const hostRect = hostNode.getBoundingClientRect();
+        const contentRect = contentNode.getBoundingClientRect();
+        const indent = Math.max(0, Math.round(contentRect.left - hostRect.left));
+        const anchorRole = anchorNode.classList?.contains('notes')
+            ? 'notes'
+            : (anchorNode.classList?.contains('name') ? 'name' : 'content');
+
+        return {
+            anchorNode,
+            hostNode,
+            indent,
+            anchorRole
+        };
+    }
+
+    function insertAfter(referenceNode, newNode) {
+        if (!referenceNode || !referenceNode.parentNode) return;
+        if (referenceNode.nextSibling) {
+            referenceNode.parentNode.insertBefore(newNode, referenceNode.nextSibling);
+        } else {
+            referenceNode.parentNode.appendChild(newNode);
+        }
+    }
+
+    function insertPreviewContainer(anchorNode, container) {
+        let referenceNode = anchorNode;
+        while (
+            referenceNode.nextSibling &&
+            referenceNode.nextSibling.nodeType === 1 &&
+            referenceNode.nextSibling.classList?.contains('wf-media-container')
+        ) {
+            referenceNode = referenceNode.nextSibling;
+        }
+        insertAfter(referenceNode, container);
     }
 
     function isOwnMutationNode(node) {
@@ -205,17 +246,20 @@
             return;
         }
 
-        const parentBlock = contentNode.parentNode;
-        if (!parentBlock) return;
+        const mount = resolvePreviewMount(contentNode);
+        if (!mount) return;
 
-        const mediaKey = buildMediaKey(matchType, url);
-        const existing = findExistingContainer(parentBlock, mediaKey);
+        const { anchorNode, hostNode, indent, anchorRole } = mount;
+
+        const mediaKey = buildMediaKey(anchorRole, matchType, url);
+        const existing = findExistingContainer(hostNode, mediaKey);
         if (existing) return;
 
         const container = document.createElement('div');
         container.className = 'wf-media-container';
         container.dataset.wfMediaKey = mediaKey;
         container.contentEditable = 'false';
+        container.style.marginLeft = `${indent}px`;
 
         const inner = document.createElement('div');
         inner.className = 'wf-media-inner';
@@ -233,7 +277,7 @@
             const match = url.match(embedConfig.regex);
 
             if (match) {
-                for (let i = 1; i < match.length; i++) {
+                for (let i = 1; i < match.length; i += 1) {
                     finalEmbedUrl = finalEmbedUrl.replace('$' + i, match[i] || '');
                 }
             }
@@ -247,7 +291,7 @@
             inner.appendChild(iframe);
         }
 
-        parentBlock.appendChild(container);
+        insertPreviewContainer(anchorNode, container);
     }
 
     let timeout = null;
@@ -268,15 +312,15 @@
         const observer = new MutationObserver((mutations) => {
             let shouldRun = false;
 
-            for (const m of mutations) {
-                if (m.type === 'childList') {
-                    const changedNodes = [...m.addedNodes, ...m.removedNodes];
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
                     if (changedNodes.length && changedNodes.every(isOwnMutationNode)) {
                         continue;
                     }
                 }
 
-                if (isOwnMutationNode(m.target)) {
+                if (isOwnMutationNode(mutation.target)) {
                     continue;
                 }
 
@@ -295,8 +339,8 @@
         });
 
         document.addEventListener('click', () => setTimeout(run, 500));
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') setTimeout(run, 500);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') setTimeout(run, 500);
         });
     }
 
